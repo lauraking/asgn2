@@ -84,12 +84,21 @@ u8 lsb_bytes = 0;
 u8 result = 0;
 int is_msb = 1; 
 
+/* read index */
+int read_page = 0;
+int read_off = 0;
+
+/* write index */
+int write_page = 0;
+int write_off = 0; 
+
 static int irq_number = IRQ_NUMBER;				/* create irq_number variable*/
 int asgn2_major = 0;                      /* major number of module */  
 int asgn2_minor = 0;                      /* minor number of module */
 int asgn2_dev_count = 1;                  /* number of devices */
 struct proc_dir_entry *proc_entry;	  		/* initial proc entry */
 struct proc_dir_entry *maj_min_num_proc;	/* major number proc entry */
+
 
 /**
  * This function frees all memory pages held by the module.
@@ -367,7 +376,9 @@ ssize_t asgn2_write(struct file *filp, const char __user *buf, size_t count,
   struct list_head *ptr = asgn2_device.mem_list.next;
   page_node *curr;
 
-  while (size_written < count) {
+/*TODO keep working on write */
+
+  while (size_written < buf.size) {
     curr = list_entry(ptr, page_node, list);
     if (ptr == &asgn2_device.mem_list) {
       /* not enough page, so add page */
@@ -386,7 +397,7 @@ ssize_t asgn2_write(struct file *filp, const char __user *buf, size_t count,
       list_add_tail(&(curr->list), &asgn2_device.mem_list);
       asgn2_device.num_pages++;
       ptr = asgn2_device.mem_list.prev;
-    } else if (curr_page_no < begin_page_no) {
+    } else if (curr_page_no < write_page) {
       /* move on to the next page */
       ptr = ptr->next;
       curr_page_no++;
@@ -827,17 +838,18 @@ void add_to_buf(u8 byte) {
 irqreturn_t dummyport_interrupt(int irq, void *dev_id) {
  if (is_msb) {
   msb_bytes = read_half_byte() << 4;
-	printk(KERN_WARNING "MSB IN\n");
+	printk(KERN_WARNING "MSB IN",msb_bytes);
 	is_msb = 0; 
  } 
  else {
   lsb_bytes = read_half_byte();
 	printk(KERN_WARNING "LSB IN\n");
 	result = msb_bytes | lsb_bytes;
+	printk(KERN_WARNING "RESULT = %c\n",result);
 	add_to_buf(result); 
 	is_msb = 1; 
  }    
-
+ return IRQ_HANDLED; 
 } 
 
 module_init(asgn2_init_module);
