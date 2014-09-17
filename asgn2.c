@@ -76,7 +76,7 @@ typedef struct circ_buf_t {
 	u8 *array;
 } circ_buf;
 
-circ_buf buf;
+circ_buf cbuf;
 
 /* initialize values for reading half bytes */ 
 u8 msb_bytes = 0;
@@ -377,8 +377,10 @@ ssize_t asgn2_write(struct file *filp, const char __user *buf, size_t count,
   page_node *curr;
 
 /*TODO keep working on write */
+/* writing bytes one at a time */
 
-  while (size_written < buf.size) {
+
+  while (size_written < cbuf.size) {
     curr = list_entry(ptr, page_node, list);
     if (ptr == &asgn2_device.mem_list) {
       /* not enough page, so add page */
@@ -579,7 +581,6 @@ int asgn2_read_nums(char *buf, char **start, off_t offset, int count,
 	}
 
 	result = sprintf(buf,"Device major number %d \nDevice minor number: %d\n",
-										asgn2_major, asgn2_minor);
 	/* set eof to 1 */
 	*eof = 1;											
   return result;
@@ -708,10 +709,10 @@ int __init asgn2_init_module(void){
 	} 
 
 	/*initialize circular buffer*/
-	buf.size = PAGE_SIZE;
-	buf.count = 0;
-	buf.start = 0;
-	buf.array = kmalloc(buf.size, GFP_KERNEL);
+	cbuf.size = PAGE_SIZE;
+	cbuf.count = 0;
+	cbuf.start = 0;
+	cbuf.array = kmalloc(cbuf.size, GFP_KERNEL);
 
 	printk(KERN_WARNING "Hello world from %s\n", MYDEV_NAME);
 
@@ -720,7 +721,7 @@ int __init asgn2_init_module(void){
   /* cleanup code called when any of the initialization steps fail */
 fail_device:
 
-   kfree(buf.array);
+   kfree(cbuf.array);
 
    class_destroy(asgn2_device.class);
 
@@ -768,7 +769,7 @@ void __exit asgn2_exit_module(void){
    */
 
 	/* free the circular buffer array */   
-	kfree(buf.array);
+	kfree(cbuf.array);
 
 	/* free memory pages*/
 	free_memory_pages();
@@ -800,33 +801,33 @@ void __exit asgn2_exit_module(void){
 
 void t_fun() {
 	u8 removed;
-	if (buf.count == 0) {
+	if (cbuf.count == 0) {
 		printk(KERN_WARNING "EMPTY BUFFER");
 		return;
 	} 
 
-	removed = buf.array[buf.start];
+	removed = cbuf.array[cbuf.start];
 	printk(KERN_WARNING "REMOVED FROM BUF: %c\n",removed); 
 
-  buf.start = (buf.start + 1)	% buf.size; 
-  buf.count--;  
+  cbuf.start = (cbuf.start + 1)	% cbuf.size; 
+  cbuf.count--;  
 
 } 
 
 /* declare tasklet */
-DECLARE_TASKLET(t_name, t_fun, &buf.array);
+DECLARE_TASKLET(t_name, t_fun, &cbuf.array);
 
 void add_to_buf(u8 byte) {
 	int index;
 
-	if (buf.count == buf.size) {
+	if (cbuf.count == cbuf.size) {
 		printk(KERN_WARNING "BUFFER FULL->CANNOT ADD ");
 		return;
 	} 
 	/* implement adding to circular buffer*/
-	index = (buf.start + buf.count) % buf.size;
-	buf.array[index] = byte;
-	buf.count ++;
+	index = (cbuf.start + cbuf.count) % cbuf.size;
+	cbuf.array[index] = byte;
+	cbuf.count ++;
 	printk(KERN_WARNING "ADD TO BUF: %c\n", byte);	
 
 	/* schedule tasklet */
