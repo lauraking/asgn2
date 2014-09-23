@@ -200,7 +200,7 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count,
   size_t size_read = 0;     /* size read from virtual disk in this function */
   size_t begin_offset;      /* the offset from the beginning of a page to
 			       start reading */
-  int begin_page_no = *f_pos / PAGE_SIZE; /* the first page which contains
+  int begin_page_no = read_pos / PAGE_SIZE; /* the first page which contains
 					     the requested data */
   int curr_page_no = 0;     /* the current page number */
   size_t curr_size_read;    /* size read from the virtual disk in this round */
@@ -233,16 +233,18 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count,
    */
 
 	/* check f_pos if beyond data_size */
-	if (*f_pos >= asgn2_device.data_size) {
-		printk(KERN_WARNING "BEGINING OF READ CHECK -> ret 0\n");
-		return 0;
-	} 
+	//if (*f_pos >= asgn2_device.data_size) {
+	//	printk(KERN_WARNING "BEGINING OF READ CHECK -> ret 0\n");
+	//	return 0;
+	//}
 	
 	printk(KERN_WARNING "INITAL READ CONDITIONS\n");
 	printk(KERN_WARNING "read data_size= %d\n", asgn2_device.data_size);
 	printk(KERN_WARNING "read f_pos = %u\n", *f_pos);
 	printk(KERN_WARNING "SEEK BEGIN PAGE NO: %d\n",begin_page_no);
 	
+	/*TODO check if there is anything in buffer*/
+
 	/* traverse through page list to access first read page*/
 	list_for_each(ptr, &asgn2_device.mem_list) {
 		
@@ -458,286 +460,21 @@ ssize_t asgn2_write(char byte_in) {
 	memmove(page_address(curr->page)+begin_offset,&byte_in,1); 
 	printk(KERN_WARNING "BYTE WRITTEN TO PAGE %d: %c",curr_page_no, byte_in);			
 	write_pos++;
-	printk(KERN_WARNING "WRITE_POS UPDATE: %d",write_pos);
+	printk(KERN_WARNING "WRITE_POS UPDATE: %d\n",write_pos);
 	asgn2_device.data_size++;
 		/* check for null character*/
 	if (byte_in == '\0') {
-		if (curr->null_addr < 0) {
+		printk(KERN_WARNING "NULL CHARACTER FOUND\n");
+		printk(KERN_WARNING "CURR->NULL_ADDR: %d\n",curr->null_addr);
+		if (curr->null_addr == -1) {
 			/* set current page null addresss to write offset*/ 
 			curr->null_addr = begin_offset; 
+			printk(KERN_WARNING "null at position %d\n",begin_offset);
 		} 
 	} 
 	
-	/* begin write while loop */
-//	while (size_written < count) {
-//		printk(KERN_WARNING "\nIN WRITE WHILE LOOP!!\n");	
-//		printk(KERN_WARNING "LOOP WRITE_POS : %u\n",write_pos);
-//		printk(KERN_WARNING "LOOP OFFSET: %d\n",begin_offset);
-//		printk(KERN_WARNING "LOOP SIZE_WRITTEN: %d\nCOUNT: %d\n\n",
-//																									size_written,count);
-//		
-//		/* calcualte size to be written in turn of while loop*/
-//		/* limited by size of page and offset or the last page indicated by count*/
-//		size_to_be_written = min((int)(PAGE_SIZE - begin_offset),(int)(count-size_written));
-//
-//		printk(KERN_WARNING "SIZE TO BE WRITTEN: %d bytes\n",
-//																									size_to_be_written);
-//		printk(KERN_WARNING "ON PAGE: %d\n", curr_page_no);
-//		
-//		/* get data from user to write to file in size_to_be_written increment*/
-//		memmove(page_address(curr->page)+begin_offset, &byte_in, size_to_be_written);
-//		printk(KERN_WARNING "BYTE WRITTEN TO PAGE %d: %c",curr_page_no, byte_in);			
-//	
-//		//printk(KERN_WARNING "SIZE NOT WRITTEN: %d\n",size_not_written);
-//
-//		/* calculate current size written from the copy funciton */
-//		curr_size_written = size_to_be_written - size_not_written;
-//		printk(KERN_WARNING "WROTE: %d TO PAGE: %d\n",
-//														curr_size_written,curr_page_no);
-//
-//		if (size_to_be_written == size_not_written) {
-//			/* error in copy from user*/
-//			/* zero bytes were written*/
-//			/* exit loop before updating any variables*/
-//			printk(KERN_WARNING "curr_size_written is 0 return \n");
-//			return -EFAULT; 
-//		}
-//
-//		/* update the current_size_written after write */
-//		size_written += curr_size_written;
-//		printk(KERN_WARNING "UPDATE SIZE_WRITTEN: %d\n",size_written);
-//		
-//		/* update file position */
-//		printk(KERN_WARNING "MOVE F_POS FROM %u to\n",write_pos);
-//		write_pos += curr_size_written;			
-//		printk(KERN_WARNING "UPDATE F POS: %u\n",write_pos);
-//		
-//		if (size_not_written > 0) {
-//			/* size not written in copy to user indicates error*/
-//			/* exit loop and return the amount written up to this point*/
-//			printk(KERN_WARNING "SIZE NOT WRITTEN > 0 -> EXIT LOOP");
-//			break;
-//		}
-//
-//		/* after first through of loop set begin_offset to 0 */			
-//		begin_offset = 0;
-//		printk(KERN_WARNING "RESET BEGIN OFFSET TO %d\n",begin_offset);
-//		
-//		/* move pointer to next in mem_list*/
-//		ptr = ptr->next;
-//
-//		/* retrieve the next page address and set to current page */
-//		curr = list_entry(ptr, page_node, list);
-//
-//		/* update page count */ 
-//		curr_page_no ++; 
-//			printk(KERN_WARNING "NEXT PAGE NO IS : %d\n\n",curr_page_no);
-//	}
-//	/* out of write while loop*/
-//	
-//	/* updating device data size after write completion*/
-//	printk(KERN_WARNING "UPDATE DATASIZE FROM %d ",asgn2_device.data_size);
-//  asgn2_device.data_size = max(asgn2_device.data_size,
-//                               orig_f_pos + size_written);
-//	printk(KERN_WARNING "TO %d\n",asgn2_device.data_size);
-//	printk(KERN_WARNING "TOTAL WRITTEN = %d bytes\n\nEXIT WRITE\n",
-//																										size_written);
   return size_written;
 }
-
-
-//ssize_t asgn2_write(char byte_in) {
-//  size_t size_written = 0;  /* size written to virtual disk in this function */
-//  size_t begin_offset = write_off;      /* the offset from the beginning of a page to
-//			       start writing */
-//  int begin_page_no =  write_page;  /* the first page this finction
-//					      should start writing to */
-//
-//  int curr_page_no = 0;     /* the current page number */
-//  size_t curr_size_written; /* size written to virtual disk in this round */
-//  size_t size_to_be_written = 1;  /* size to be read in the current round in
-//				 while loop */
-//
-//	size_t count = 1; 
-//  
-//  struct list_head *ptr = asgn2_device.mem_list.next;
-//  page_node *curr;
-//
-//printk(KERN_WARNING "CHAR RECEIVED IN WRITE: %c",byte_in);
-//
-//  while (size_written < count) {
-//    curr = list_entry(ptr, page_node, list);
-//    if (ptr == &asgn2_device.mem_list) {
-//      /* not enough page, so add page */
-//      curr = kmem_cache_alloc(asgn2_device.cache, GFP_KERNEL);
-//      if (NULL == curr) {
-//	printk(KERN_WARNING "Not enough memory left\n");
-//	break;
-//      }
-//      curr->page = alloc_page(GFP_KERNEL);
-//      if (NULL == curr->page) {
-//	printk(KERN_WARNING "Not enough memory left\n");
-//        kmem_cache_free(asgn2_device.cache, curr);
-//	break;
-//      }
-//      //INIT_LIST_HEAD(&curr->list);
-//    	curr->null_addr = -1; 
-//		  list_add_tail(&(curr->list), &asgn2_device.mem_list);
-//      asgn2_device.num_pages++;
-//      ptr = asgn2_device.mem_list.prev;
-//
-//			printk(KERN_WARNING " END OF FIRST IF"); 
-//	break;	/*TODO test break*/
-//
-//    } else if (curr_page_no < begin_page_no) {
-//      /* move on to the next page */
-//      ptr = ptr->next;
-//      curr_page_no++;
-//    } else {
-//
-//		printk(KERN_WARNING "FOUND PAGE %d",write_page);
-//		size_written = 1; 
-//
-//      /* this is the page to write to */
-//      //begin_offset = *f_pos % PAGE_SIZE;
-//      //size_to_be_written = (size_t)min((size_t)(count - size_written),
-//			//	       (size_t)(PAGE_SIZE - begin_offset));
-//      //do {
-//				//curr_size_written = size_to_be_written; 
-//	//			size_to_be_written = 1; 
-//	//			memmove(page_address(curr->page)+write_off, &byte_in, size_to_be_written);
-//  //      printk(KERN_WARNING "WROTE %c to page no %d",byte_in,write_page); 
-//
-//	//			//size_written += size_to_be_written;
-//  //      //begin_offset += curr_size_written;
-//  //    //  *f_pos += curr_size_written;
-//  //    	 size_to_be_written = 0;
-//	//			
-//	//			//asgn2_device.data_size++;
-//  //    
-//	//			/* check for null character*/
-//	//			if (byte_in == '\0') {
-//	//				if (curr->null_addr < 0) {
-//	//					/* set current page null addresss to write offset*/ 
-//	//					curr->null_addr = write_off; 
-//	//				} 
-//	//			}
-//
-//	//			/* increment write page offset */
-//	//	    write_off = (write_off + 1) % PAGE_SIZE;
-//	//			if (write_off == 0){
-//	//				/* advance write page counter*/
-//	//				write_page++;
-//	//			} 
-//
-//	//			/* update size written and device size*/ 
-//	//			size_written = 1;			
-//	//			asgn2_device.data_size++; 
-//
-//	//		//} while (size_to_be_written > 0);
-//  //    //curr_page_no++;
-//  //    //ptr = ptr->next;
-//    }
-//  }
-//
-//  /* END TRIM */
-//
-//
-//
-//  return size_written;
-//}
-
-//ssize_t asgn2_write2(char in_byte) {
-//  size_t orig_f_pos = *f_pos;  /* the original file position */
-//  size_t size_written = 0;  /* size written to virtual disk in this function */
-//	
-//	/* TODO don't need because we keep write page?? */
-//  
-//	//size_t begin_offset;      /* the offset from the beginning of a page to
-//	//		       start writing */
-//  
-//	//int begin_page_no = *f_pos / PAGE_SIZE;  /* the first page this finction
-//	//				      should start writing to */
-//
-//	/*TODO should curr_page_no be init to read_page?*/ 
-//  int curr_page_no = 0;     /* the current page number */
-//  //size_t curr_size_written; /* size written to virtual disk in this round */
-//  //size_t size_to_be_written;  /* size to be read in the current round in
-//	//			 while loop */
-//  
-//  struct list_head *ptr = asgn2_device.mem_list.next;
-//  page_node *curr;
-//
-//	int active_pages = write_page - read_page;
-///*TODO keep working on write */
-///* writing bytes one at a time */
-//
-//if (asgn2_device.num_pages == 0 || write_page >= asgn2_device.num_pages) {
-//      curr = kmem_cache_alloc(asgn2_device.cache, GFP_KERNEL);
-//      if (NULL == curr) {
-//				printk(KERN_WARNING "Not enough memory left\n");
-//	break;
-//      }
-//      curr->page = alloc_page(GFP_KERNEL);
-//      if (NULL == curr->page) {
-//				printk(KERN_WARNING "Not enough memory left\n");
-//        kmem_cache_free(asgn2_device.cache, curr);
-//	break;
-//      }
-//      //INIT_LIST_HEAD(&curr->list);
-//      list_add_tail(&(curr->list), &asgn2_device.mem_list);
-//      ptr = asgn2_device.mem_list.prev;
-//		
-//			asgn2_device.num_pages++;
-//	
-//} 
-//
-//
-//  /*find page to write*/
-//	list_for_each_entry(curr, &asgn2_device.mem_list, list) {
-//    //curr = list_entry(ptr, page_node, list);
-//    
-//		if (curr_page_no < write_page) {
-//      /* move on to the next page */
-//      /*TODO what to do with ptr? */
-//			ptr = ptr->next;
-//      curr_page_no++;
-//
-//    } else {
-//      /* this is the page to write to */
-//				
-//				/* write individual byte to page*/
-//
-//				memmove(page_address(curr->page)+write_off, &byte_in, size_to_be_written);
-//				//curr->page[write_off] = byte_in; 	
-//     
-//				/* check for null character*/
-//				if (byte_in == '\0') {
-//					if (curr->null_addr < 0) {
-//						/* set current page null addresss to write offset*/ 
-//						curr->null_addr = write_off; 
-//					} 
-//				}
-//
-//				/* increment write page offset */
-//		    write_off = (write_off + 1) % PAGE_SIZE;
-//				if (write_off == 0){
-//					/* advance write page counter*/
-//					write_page++;
-//				} 
-//
-//				/* update size written and device size*/ 
-//				size_written = 1;			
-//				asgn2_device.data_size++; 
-// 			/* TODO do i need to break*/ 	
-//	break;    
-//    }
-//
-//	}
-//
-//	/*TODO what to return? */
-//  return size_written;
-//}
 
 #define SET_NPROC_OP 1
 #define TEM_SET_NPROC _IOW(MYIOC_TYPE, SET_NPROC_OP, int) 
