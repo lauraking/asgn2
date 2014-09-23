@@ -52,6 +52,8 @@ MODULE_DESCRIPTION("COSC440 asgn2");
 typedef struct page_node_rec {
   struct list_head list;
   struct page *page;
+	/*TODO where to init null_addr */
+	int null_addr = -1; 
 } page_node;
 
 typedef struct asgn2_dev_t {
@@ -359,16 +361,19 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count,
  * This function writes from the user buffer to the virtual disk of this
  * module
  */
-ssize_t asgn2_write(struct file *filp, const char __user *buf, size_t count,
-		  loff_t *f_pos) {
+ssize_t asgn2_write(char in_byte) {
   size_t orig_f_pos = *f_pos;  /* the original file position */
   size_t size_written = 0;  /* size written to virtual disk in this function */
-  size_t begin_offset;      /* the offset from the beginning of a page to
-			       start writing */
-  int begin_page_no = *f_pos / PAGE_SIZE;  /* the first page this finction
-					      should start writing to */
+	
+	/* TODO don't need because we keep write page?? */
+  
+	//size_t begin_offset;      /* the offset from the beginning of a page to
+	//		       start writing */
+  
+	//int begin_page_no = *f_pos / PAGE_SIZE;  /* the first page this finction
+	//				      should start writing to */
 
-  int curr_page_no = 0;     /* the current page number */
+  int curr_page_no = read_page;     /* the current page number */
   size_t curr_size_written; /* size written to virtual disk in this round */
   size_t size_to_be_written;  /* size to be read in the current round in
 				 while loop */
@@ -376,57 +381,72 @@ ssize_t asgn2_write(struct file *filp, const char __user *buf, size_t count,
   struct list_head *ptr = asgn2_device.mem_list.next;
   page_node *curr;
 
+	int active_pages = write_page - read_page;
 /*TODO keep working on write */
 /* writing bytes one at a time */
 
-
-  while (size_written < cbuf.size) {
-    curr = list_entry(ptr, page_node, list);
-    if (ptr == &asgn2_device.mem_list) {
-      /* not enough page, so add page */
+if (asgn2_device.num_pages == 0 || write_page >= asgn2_device.num_pages) {
       curr = kmem_cache_alloc(asgn2_device.cache, GFP_KERNEL);
       if (NULL == curr) {
-	printk(KERN_WARNING "Not enough memory left\n");
+				printk(KERN_WARNING "Not enough memory left\n");
 	break;
       }
       curr->page = alloc_page(GFP_KERNEL);
       if (NULL == curr->page) {
-	printk(KERN_WARNING "Not enough memory left\n");
+				printk(KERN_WARNING "Not enough memory left\n");
         kmem_cache_free(asgn2_device.cache, curr);
 	break;
       }
       //INIT_LIST_HEAD(&curr->list);
       list_add_tail(&(curr->list), &asgn2_device.mem_list);
-      asgn2_device.num_pages++;
       ptr = asgn2_device.mem_list.prev;
-    } else if (curr_page_no < write_page) {
+		
+			asgn2_device.num_pages++;
+	
+} 
+
+
+  /*find page to write*/
+	list_for_each_entry(curr, &asgn2_device.mem_list, list) {
+    //curr = list_entry(ptr, page_node, list);
+    
+		if (curr_page_no < write_page) {
       /* move on to the next page */
-      ptr = ptr->next;
+      //ptr = ptr->next;
       curr_page_no++;
+
     } else {
       /* this is the page to write to */
-      begin_offset = *f_pos % PAGE_SIZE;
-      size_to_be_written = (size_t)min((size_t)(count - size_written),
-				       (size_t)(PAGE_SIZE - begin_offset));
-      do {
-        curr_size_written = size_to_be_written -
-	  copy_from_user(page_address(curr->page) + begin_offset,
-	  	         buf + size_written, size_to_be_written);
-        size_written += curr_size_written;
-        begin_offset += curr_size_written;
-        *f_pos += curr_size_written;
-        size_to_be_written -= curr_size_written;
-      } while (size_to_be_written > 0);
-      curr_page_no++;
-      ptr = ptr->next;
+				
+				/* write individual byte to page*/
+
+				curr->page[write_off] = byte_in; 	
+     
+				/* check for null character*/
+				if (byte_in == '\0') {
+					if (curr->null_addr < 0) {
+						/* set current page null addresss to write offset*/ 
+						curr->null_addr = write_off; 
+					} 
+				}
+
+				/* increment write page offset */
+		    write_off = (write_off + 1) % PAGE_SIZE;
+				if (write_off == 0){
+					/* advance write page counter*/
+					write_page++;
+				} 
+
+				/* update size written and device size*/ 
+				size_written = 1;			
+				asgn2_device.data_size++; 
+ 			/* TODO do i need to break*/ 	
+	break;    
     }
-  }
 
-  /* END TRIM */
+	}
 
-
-  asgn2_device.data_size = max(asgn2_device.data_size,
-                               orig_f_pos + size_written);
+	/*TODO what to return? */
   return size_written;
 }
 
