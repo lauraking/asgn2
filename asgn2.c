@@ -86,9 +86,11 @@ u8 lsb_bytes = 0;
 u8 result = 0;
 int is_msb = 1; 
 
+int null_count = 0; 
 /* read index */
 size_t read_pos = 0;
 
+int already = 0;
 /* write index */
 size_t write_pos = 0; 
 
@@ -173,6 +175,8 @@ int asgn2_open(struct inode *inode, struct file *filp) {
 	else if ((filp->f_flags & O_WRONLY) && (filp->f_flags & O_TRUNC)) {
 		free_memory_pages();
 	}
+
+	already = 0;
   return 0; /* success */
 }
 
@@ -213,7 +217,14 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count,
 	
 	int end_of_ram = 0;
 
+	int eof_found = 0; 
+	int i = 0;
+	int found_null = 0; 
+	int data_race_safe = 1;
+	char *check_addr; 
+
 	size_t adjust_data_size;
+	size_t search_amt;
 
   /**
    * check f_pos, if beyond data_size, return 0
@@ -240,7 +251,7 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count,
 	
 	printk(KERN_WARNING "INITAL READ CONDITIONS\n");
 	printk(KERN_WARNING "read data_size= %d\n", asgn2_device.data_size);
-	printk(KERN_WARNING "read f_pos = %u\n", *f_pos);
+	printk(KERN_WARNING "read read_pos = %u\n", read_pos);
 	printk(KERN_WARNING "SEEK BEGIN PAGE NO: %d\n",begin_page_no);
 	
 	/*TODO check if there is anything in buffer*/
@@ -258,45 +269,99 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count,
 		curr_page_no++;
 	}
 
+	if (already) {
+		return 0;
+	}
+
+	if (null_count == 0 && (write_pos > read_pos)) {
+		return 0;
+		/*TODO make it return busy */ 
+	}
+ 
+	if (write_pos == 0 || (read_pos >= write_pos -1)) {
+		/* TODO put read process to sleep yo */ 
+		/* or is this in open? */
+		return 0; 
+	} 
+
 	/* calculate beginning offset of first page*/
-	begin_offset = *f_pos % PAGE_SIZE;
+	begin_offset = read_pos % PAGE_SIZE;
 	printk(KERN_WARNING "BEGIN OFFSET: %d\n",begin_offset);
 	
 	/* adjust the data size applicable*/
-	adjust_data_size = asgn2_device.data_size - begin_offset;
+	//adjust_data_size = asgn2_device.data_size - begin_offset;
 
-	printk(KERN_WARNING "ADJUSTED D SIZE: %d\n",adjust_data_size);
+	//printk(KERN_WARNING "ADJUSTED D SIZE: %d\n",adjust_data_size);
 
-	adjust_data_size = min((int)(count - begin_offset),(int)adjust_data_size);
-	printk(KERN_WARNING "A D_SIZE after count-offset compare:%d\n",adjust_data_size);
+//	adjust_data_size = min((int)(count - begin_offset),(int)adjust_data_size);
+//	printk(KERN_WARNING "A D_SIZE after count-offset compare:%d\n",adjust_data_size);
 	
 	/* check that count is not beyond the data size */
-	if (*f_pos + count > asgn2_device.data_size) {
+	//if (*f_pos + count > asgn2_device.data_size) {
 		/* *f_pos + count is greater than data size */
 
-		printk(KERN_WARNING "*F_POS + COUNT GREATER THAN DATA SIZE\n");
-		printk(KERN_WARNING "COUNT SHRUNK FROM %d TO ",count);
+//		printk(KERN_WARNING "*F_POS + COUNT GREATER THAN DATA SIZE\n");
+//		printk(KERN_WARNING "COUNT SHRUNK FROM %d TO ",count);
 		/* adjust count to available left to read*/
-		count = asgn2_device.data_size - *f_pos;
-		printk(KERN_WARNING "%d\n",count);
+//		count = asgn2_device.data_size - *f_pos;
+//		printk(KERN_WARNING "%d\n",count);
 		
-	}
+//	}
 
 	printk(KERN_WARNING "\nENTER READ WHILE LOOP!!\n");
 	
 	/* begin read while loop*/
-	while (size_read < adjust_data_size) {	
-		printk(KERN_WARNING "READ ADJUST DATA SIZE= %d\n", adjust_data_size);
+	while (!(eof_found) && data_race_safe) {	
+		//printk(KERN_WARNING "READ ADJUST DATA SIZE= %d\n", adjust_data_size);
 		printk(KERN_WARNING "SIZE READ = %d\n", size_read);
-		printk(KERN_WARNING "FPOS = %u\n", *f_pos);
+		printk(KERN_WARNING "READ_POS = %u\n", read_pos);
 		
+		curr = list_entry(ptr, page_node, list);
+		
+
+		/* check if eof is on page*/
+		printk(KERN_WARNING "CUR PAGE EOF FLAG: %d\n",curr->null_addr);
+		
+		begin_offset = read_pos % PAGE_SIZE; 
+		printk(KERN_WARNING "BEGIN OFFSET: %d\n",begin_offset);
+
+		if (curr->null_addr == -1) {
+			/* NO NULL ON THIS PAGE */
+			size_to_be_read = PAGE_SIZE - begin_offset; 	
+		}  
+		else {
+			/* NULL ON THIS PAGE */
+			size_to_be_read = curr->null_addr - begin_offset;
+			eof_found = 1;
+
+		} 
+	
+		printk(KERN_WARNING "size to be read: %u\n",size_to_be_read);
+		printk(KERN_WARNING "eof_found: %d\n",eof_found); 
+
+
+		/* avoid data race */ 
+		/* check if read_pos + size_to_be_read > write_pos */
+		/* if so size to be read is write_pos - read_pos - 1 */
+		/* then raise flag that will tell program at the end of 
+		the loop to put reader to sleep */ 
+
+		if ((read_pos + size_to_be_read) >= write_pos) {
+			/* data race issue -> shrink size to be read */
+			data_race_safe = 0;
+			size_to_be_read = write_pos - read_pos; /* TODO should adjust by 1?*/
+ 
+		} 
+		
+
 		/* calculate size to be read in this run of loop*/
-		size_to_be_read = min((int)(PAGE_SIZE - begin_offset),(int)(count-size_read));
+		//size_to_be_read = min((int)(PAGE_SIZE - begin_offset),(int)(count-size_read));
 		printk(KERN_WARNING "WANT TO READ = %d\n", size_to_be_read);
 	
 		printk(KERN_WARNING "ON PAGE %d\n", curr_page_no);
 
 		/* copy size to user buffer*/
+		/* TODO mem copy thing */ 
 		size_not_read = copy_to_user(buf + size_read, 
 														page_address(curr->page) + begin_offset,
 														size_to_be_read);
@@ -309,20 +374,101 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count,
 		printk(KERN_WARNING "USER READ %d bytes\n",curr_size_read);
 
 		/* update file position as result of read*/
-		*f_pos += curr_size_read;
-		printk(KERN_WARNING "UPDATED F_POS = %u\n", *f_pos);
+		read_pos += curr_size_read;
+		printk(KERN_WARNING "UPDATED R_POS = %u\n", read_pos);
  
+
 		/* update size read*/
 		size_read += curr_size_read;
 		printk(KERN_WARNING "TOTAL SIZE READ = %d \n",size_read);
 
-		/* if the total size read equals amount supposed to read*/
-		if (size_read == adjust_data_size){
-			printk(KERN_WARNING "SIZE_READ == ADJUST_DATA_SIZE\n");
-			printk(KERN_WARNING "RETURN size_read TO USER\n");
-			return size_read;
+		/* check eof_found */
+		/* if eof_found need to recalculate the page node null addr value */
+		
+		/* TODO how is it different when data race */ 
+		/* TODO what about when null is last byte on page */ 
+		if (eof_found) {
+			/*TODO maybe keep add one to r_pos?*/
+	
+			null_count--; 
+			printk(KERN_WARNING "in eof_found\n");
+			for (i = curr->null_addr + 1; i < PAGE_SIZE; i++) {
+				check_addr = page_address(curr->page) + i;
+				if (*check_addr == "\0") {
+					found_null = 1; 
+					curr->null_addr = i; 
+					printk(KERN_WARNING "NULL FOUND ADDR: %u\n",curr->null_addr);
+					break;
+				} 
+			} 
 
+			if (!found_null) {
+				curr->null_addr = -1;
+				printk(KERN_WARNING "NO NULL FOUND ON REST OF PAGE\n");
+				printk(KERN_WARNING "curr->null_addr: %d",curr->null_addr); 
+			} 
 		} 
+
+		if (!data_race_safe && !eof_found ) {
+			printk(KERN_WARNING "IN DATA RACE NOT SAFE IF \n");
+			/* need to put this process to sleep */
+				/*TODO implement */ 
+			break;
+		} 
+
+//		if (!eof_found ||(found_null && (i==PAGE_SIZE))) { 
+
+		/* move pointer to next in mem_list*/
+		ptr = ptr->next;
+
+		/* retrieve the next page address and set to current page */
+//		curr = list_entry(ptr, page_node, list);
+
+		/* update page count */ 
+		curr_page_no ++; 
+		
+		if ((!eof_found && curr_size_read > 0) || (found_null && (i==PAGE_SIZE))) { 
+			/* need to free page, update write_pos, read_pos */
+			printk(KERN_WARNING "WANT TO FREE PAGE\n");
+			if (curr->page != NULL) {
+				__free_page(curr->page);
+				printk(KERN_WARNING "FREED PAGE\n");
+			}
+
+			list_del(asgn2_device.mem_list.next);
+
+			printk(KERN_WARNING "DEL MEM LIST\n"); 
+
+			if (NULL != curr) {
+				kmem_cache_free(asgn2_device.cache, curr);
+				printk(KERN_WARNING "FREED CURR PAGE NODE\n");
+			} 
+
+			asgn2_device.data_size -= PAGE_SIZE;
+			asgn2_device.num_pages --;
+
+			printk(KERN_WARNING "WRITE_POS UPDATE FROM %d\n",write_pos);
+			write_pos -= PAGE_SIZE;
+			printk(KERN_WARNING "WRITE_POS UPDATE to %d\n",write_pos);
+			printk(KERN_WARNING "READ_POS UPDATE FROM %d\n",read_pos);
+			read_pos -= PAGE_SIZE; 
+			printk(KERN_WARNING "READ_POS UPDATE to %d\n",read_pos);
+			
+		} 
+
+		/* retrieve the next page address and set to current page */
+//		curr = list_entry(ptr, page_node, list);
+
+		/* update page count */ 
+	//	curr_page_no ++; 
+
+		/* if the total size read equals amount supposed to read*/
+//		if (size_read == adjust_data_size){
+	//		printk(KERN_WARNING "SIZE_READ == ADJUST_DATA_SIZE\n");
+		//	printk(KERN_WARNING "RETURN size_read TO USER\n");
+		//	return size_read;
+
+	//	} 
 
 		/* check if copied nothing */
 		if (size_not_read == size_to_be_read) {
@@ -339,17 +485,21 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count,
 		}
 	
 		/* after first through of loop set begin_offset to 0*/			
-		begin_offset = 0;
+		//begin_offset = 0;
 
 		/* move pointer to next in mem_list*/
-		ptr = ptr->next;
+		//ptr = ptr->next;
 
 		/* retrieve the next page address and set to current page */
-		curr = list_entry(ptr, page_node, list);
+		//curr = list_entry(ptr, page_node, list);
 
 		/* update page count */ 
-		curr_page_no ++; 
+		//curr_page_no ++; 
 
+	}
+
+	if (size_read > 0) {
+		already = 1;
 	}
 
 	printk(KERN_WARNING "OUT OF READ WHILE LOOP\n");
@@ -464,6 +614,7 @@ ssize_t asgn2_write(char byte_in) {
 	asgn2_device.data_size++;
 		/* check for null character*/
 	if (byte_in == '\0') {
+		null_count++;
 		printk(KERN_WARNING "NULL CHARACTER FOUND\n");
 		printk(KERN_WARNING "CURR->NULL_ADDR: %d\n",curr->null_addr);
 		if (curr->null_addr == -1) {
