@@ -36,6 +36,7 @@
 #include <linux/proc_fs.h>
 #include <linux/device.h>
 #include "gpio.c"
+#include <linux/sched.h>
 
 #define MYDEV_NAME "asgn2"
 #define MYIOC_TYPE 'k'
@@ -45,7 +46,7 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Laura Kingsley");
 MODULE_DESCRIPTION("COSC440 asgn2");
 
-
+DECLARE_WAIT_QUEUE_HEAD(wq); 
 /**
  * The node structure for the memory page linked list.
  */ 
@@ -166,6 +167,7 @@ int asgn2_open(struct inode *inode, struct file *filp) {
 
 	}	 
 
+	printk(KERN_WARNING "IN OPEN\n");
 	/* check the APPEND flag and reset to file positin to EOF */
 	if (filp->f_flags & O_APPEND) {
 		filp->f_pos = asgn2_device.data_size;
@@ -174,6 +176,11 @@ int asgn2_open(struct inode *inode, struct file *filp) {
 	/* if the file is written is WRONLY and O_TRUNC then free memory pages */
 	else if ((filp->f_flags & O_WRONLY) && (filp->f_flags & O_TRUNC)) {
 		free_memory_pages();
+	}
+
+	if (null_count == 0) {
+		/* need to suspend process */
+		wait_event_interruptible_exclusive(wq, null_count > 0); 
 	}
 
 	already = 0;
@@ -223,9 +230,15 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count,
 	int data_race_safe = 1;
 	char *check_addr; 
 
+	int del_count = 0; 
 	size_t adjust_data_size;
 	size_t search_amt;
 
+ 	page_node *del_curr;
+	struct list_head *del_tmp;
+	/*struct list_head *ptr = asgn2_device.mem_list.next; */
+	struct list_head *del_ptr;
+	int to_delete = 0; 
   /**
    * check f_pos, if beyond data_size, return 0
    * 
@@ -419,41 +432,19 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count,
 //		if (!eof_found ||(found_null && (i==PAGE_SIZE))) { 
 
 		/* move pointer to next in mem_list*/
-		ptr = ptr->next;
+		//ptr = ptr->next;
 
 		/* retrieve the next page address and set to current page */
 //		curr = list_entry(ptr, page_node, list);
 
 		/* update page count */ 
-		curr_page_no ++; 
+		//curr_page_no ++; 
 		
 		if ((!eof_found && curr_size_read > 0) || (found_null && (i==PAGE_SIZE))) { 
 			/* need to free page, update write_pos, read_pos */
 			printk(KERN_WARNING "WANT TO FREE PAGE\n");
-			if (curr->page != NULL) {
-				__free_page(curr->page);
-				printk(KERN_WARNING "FREED PAGE\n");
-			}
-
-			list_del(asgn2_device.mem_list.next);
-
-			printk(KERN_WARNING "DEL MEM LIST\n"); 
-
-			if (NULL != curr) {
-				kmem_cache_free(asgn2_device.cache, curr);
-				printk(KERN_WARNING "FREED CURR PAGE NODE\n");
-			} 
-
-			asgn2_device.data_size -= PAGE_SIZE;
-			asgn2_device.num_pages --;
-
-			printk(KERN_WARNING "WRITE_POS UPDATE FROM %d\n",write_pos);
-			write_pos -= PAGE_SIZE;
-			printk(KERN_WARNING "WRITE_POS UPDATE to %d\n",write_pos);
-			printk(KERN_WARNING "READ_POS UPDATE FROM %d\n",read_pos);
-			read_pos -= PAGE_SIZE; 
-			printk(KERN_WARNING "READ_POS UPDATE to %d\n",read_pos);
-			
+			/* TODO implement delete count */	
+			del_count++;
 		} 
 
 		/* retrieve the next page address and set to current page */
@@ -488,13 +479,13 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count,
 		//begin_offset = 0;
 
 		/* move pointer to next in mem_list*/
-		//ptr = ptr->next;
+		ptr = ptr->next;
 
 		/* retrieve the next page address and set to current page */
-		//curr = list_entry(ptr, page_node, list);
+		curr = list_entry(ptr, page_node, list);
 
 		/* update page count */ 
-		//curr_page_no ++; 
+		curr_page_no ++; 
 
 	}
 
@@ -503,6 +494,99 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count,
 	}
 
 	printk(KERN_WARNING "OUT OF READ WHILE LOOP\n");
+
+	/* free pages and update read and write pointers if necessary */
+
+ // page_node *del_curr;
+	//struct list_head *del_tmp;
+	/*struct list_head *ptr = asgn2_device.mem_list.next; */
+	//struct list_head *del_ptr;
+	//int to_delete = 0; 
+  /**
+   * Loop through the entire page list {
+   *   if (node has a page) {
+   *     free the page
+   *   }
+   *   remove the node from the page list
+   *   free the node
+   * }
+   * reset device data size, and num_pages
+   */  
+	
+	//printk(KERN_WARNING "WANT TO FREE %d PAGES FROM %s\n",
+	//													asgn2_device.num_pages,
+	//													MYDEV_NAME);
+
+	to_delete = del_count; 
+
+	list_for_each_safe(del_ptr, del_tmp,  &asgn2_device.mem_list) {
+		if (to_delete == 0) {
+			printk(KERN_WARNING "no more to delete -> break out of loop\n"); 
+			break; 
+		} 
+
+		printk(KERN_WARNING "num left to delete: %d\n",to_delete); 
+
+		del_curr = list_entry(del_ptr, page_node, list);
+		
+		printk(KERN_WARNING "COMPLETED DEL_CURR LIST ENTRY\n");
+	
+		if (del_curr->page) {
+			__free_page(del_curr->page);
+		}
+		
+		printk(KERN_WARNING "DELETED DEL_CURR->PAGE\n");
+		list_del(&del_curr->list);
+		printk(KERN_WARNING "list_deleted del_cur->list\n");
+		kfree(del_curr);
+		printk(KERN_WARNING "freed del_cur\n");
+		
+			asgn2_device.data_size -= PAGE_SIZE;
+			asgn2_device.num_pages --;
+
+			printk(KERN_WARNING "WRITE_POS UPDATE FROM %d\n",write_pos);
+			write_pos -= PAGE_SIZE;
+			printk(KERN_WARNING "WRITE_POS UPDATE to %d\n",write_pos);
+			printk(KERN_WARNING "READ_POS UPDATE FROM %d\n",read_pos);
+			read_pos -= PAGE_SIZE; 
+			printk(KERN_WARNING "READ_POS UPDATE to %d\n",read_pos);
+
+		to_delete--;
+	}	 
+	
+ 	printk(KERN_WARNING "DONE FREEING %d\n",del_count - to_delete); 
+	//while (del_count > 0) {
+
+			//if (curr->page != NULL) {
+			//	__free_page(curr->page);
+			//	printk(KERN_WARNING "FREED PAGE\n");
+			//}
+
+			//list_del(asgn2_device.mem_list.next);
+
+			//printk(KERN_WARNING "DEL MEM LIST\n"); 
+
+			//if (NULL != curr) {
+			//	kmem_cache_free(asgn2_device.cache, curr);
+			//	printk(KERN_WARNING "FREED CURR PAGE NODE\n");
+			//} 
+
+			//asgn2_device.data_size -= PAGE_SIZE;
+			//asgn2_device.num_pages --;
+
+			//printk(KERN_WARNING "WRITE_POS UPDATE FROM %d\n",write_pos);
+			//write_pos -= PAGE_SIZE;
+			//printk(KERN_WARNING "WRITE_POS UPDATE to %d\n",write_pos);
+			//printk(KERN_WARNING "READ_POS UPDATE FROM %d\n",read_pos);
+			//read_pos -= PAGE_SIZE; 
+			//printk(KERN_WARNING "READ_POS UPDATE to %d\n",read_pos);
+		
+
+
+	//} 
+
+
+
 	printk(KERN_WARNING "RETURN SIZE_READ: %d TO USER\n",size_read);
   return size_read;
 }
@@ -622,6 +706,7 @@ ssize_t asgn2_write(char byte_in) {
 			curr->null_addr = begin_offset; 
 			printk(KERN_WARNING "null at position %d\n",begin_offset);
 		} 
+		wake_up_interruptible(&wq);
 	} 
 	
   return size_written;
